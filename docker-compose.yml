@@ -1,0 +1,39 @@
+# One command:  docker compose up --build   ->  http://localhost:3000
+# NOTE: these credentials are for LOCAL DEMO ONLY (no real secrets are committed).
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ops
+      POSTGRES_PASSWORD: ops
+      POSTGRES_DB: ops
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ops -d ops"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  app:    # API + static frontend. Applies the schema and seeds demo data on first start.
+    build: .
+    command: sh -c "node src/migrate.js && node src/seed.js && node src/server.js"
+    environment: &env
+      DATABASE_URL: postgres://ops:ops@db:5432/ops
+      TEST_DATABASE_URL: postgres://ops:ops@db:5432/ops_test
+      JWT_SECRET: local-demo-secret-change-me
+      PORT: "3000"
+    ports: ["3000:3000"]
+    depends_on:
+      db: { condition: service_healthy }
+
+  worker: # background job processor (outbox -> notifications). Safe to run several copies.
+    build: .
+    command: node src/worker.js
+    environment: *env
+    depends_on:
+      db: { condition: service_healthy }
+    restart: unless-stopped
+
+volumes:
+  pgdata:
